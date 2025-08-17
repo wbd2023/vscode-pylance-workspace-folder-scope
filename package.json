@@ -1,0 +1,82 @@
+{
+  "name": "vscode-pylance-workspace-folder-scope",
+  "displayName": "Pylance Workspace Folder Scope",
+  "description": "Scopes Pylance analysis to each workspace folder and disables it if the folder exceeds a file count threshold.",
+  "version": "0.1.0",
+  "publisher": "wbd2023",
+  "engines": { "vscode": "^1.85.0" },
+  "activationEvents": [
+    "workspaceContains:**/*.py",
+    "onLanguage:python"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Pylance Workspace Folder Scope",
+      "properties": {
+        "pylancePerFolderGuard.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable per-folder scoping and auto-disable when over threshold."
+        },
+        "pylancePerFolderGuard.maxFiles": {
+          "type": "number",
+          "default": 200,
+          "minimum": 1,
+          "description": "If a workspace folder contains more than this many .py files, Pylance analysis will be disabled for that folder."
+        },
+        "pylancePerFolderGuard.includePatterns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["!**/*.py"],
+          "description": "Negated glob patterns to include when analysis is enabled. Add entries like !**/*.pyi or !**/*.ipynb."
+        },
+        "pylancePerFolderGuard.excludeDirs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [".venv", "venv", "__pycache__", ".git", ".tox", ".mypy_cache", ".pytest_cache", "site-packages"],
+          "description": "Directory names to skip when counting Python files."
+        },
+        "pylancePerFolderGuard.keepStrict": {
+          "type": "boolean",
+          "default": true,
+          "description": "If true, set python.analysis.typeCheckingMode to 'strict' for each folder."
+        },
+        "pylancePerFolderGuard.notificationMode": {
+          "type": "string",
+          "enum": ["toast", "statusbar", "problems", "none"],
+          "default": "toast",
+          "description": "Controls how notifications are shown: pop-up toasts, a status bar indicator, Problems panel diagnostics, or no notifications."
+        },
+        "pylancePerFolderGuard.showEnableToast": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a toast when Pylance is re-enabled for a folder. Only used when notificationMode is 'toast'."
+        },
+        "pylancePerFolderGuard.showDisableToast": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a toast when Pylance is disabled for a folder. Only used when notificationMode is 'toast'."
+        },
+        "pylancePerFolderGuard.toastSuppressForMinutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "description": "Minimum minutes between repeated toasts for the same folder. 0 means no throttling."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "package": "npx vsce package"
+  },
+  "devDependencies": {
+    "vsce": "^2.15.0"
+  },
+  "categories": ["Other"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wbd2023/vscode-pylance-workspace-folder-scope.git"
+  }
+}
