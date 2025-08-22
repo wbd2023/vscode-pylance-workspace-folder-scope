@@ -1,4 +1,4 @@
-# Pylance Folder Guard
+# Pylance Workspace Folder Scope
 
 Scopes Pylance analysis to each workspace folder and **disables** it when a folder exceeds a file count threshold.
 
@@ -15,14 +15,18 @@ Multi-root workspaces can cause cross-folder crawling. Large folders can also sl
 
 ## Settings
 
-- `pylancePerFolderGuard.enable` (default true)  
-- `pylancePerFolderGuard.maxFiles` (default 200)  
-- `pylancePerFolderGuard.includePatterns` (default `["!**/*.py"]`)  
+- `pylanceWorkspaceFolderScope.enable` (default true)  
+- `pylanceWorkspaceFolderScope.maxFiles` (default 200)  
+- `pylanceWorkspaceFolderScope.includePatterns` (default `["!**/*.py"]`)  
   - Add more like `!**/*.pyi`, `!**/*.ipynb`
-- `pylancePerFolderGuard.excludeDirs`  
+- `pylanceWorkspaceFolderScope.excludeDirs`  
   - Default: `.venv`, `venv`, `__pycache__`, `.git`, `.tox`, `.mypy_cache`, `.pytest_cache`, `site-packages`
-- `pylancePerFolderGuard.keepStrict` (default true)  
-- `pylancePerFolderGuard.showToasts` (default true)
+- `pylanceWorkspaceFolderScope.keepStrict` (default true)  
+- `pylanceWorkspaceFolderScope.notificationMode` (default `toast`)  
+  - Options: `toast`, `statusbar`, `problems`, `none`
+- `pylanceWorkspaceFolderScope.showEnableToast` (default true)  
+- `pylanceWorkspaceFolderScope.showDisableToast` (default true)  
+- `pylanceWorkspaceFolderScope.toastSuppressForMinutes` (default 5)  
 
 ## Activation
 

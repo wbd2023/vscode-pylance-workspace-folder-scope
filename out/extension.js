@@ -45,7 +45,7 @@ function countPyFiles(root, skipDirs) {
   return total;
 }
 
-const STATE_KEY = 'pylance-folder-guard.prevSettings';
+const STATE_KEY = 'pylance-workspace-folder-scope.prevSettings';
 function getPrevMap(context) { return context.globalState.get(STATE_KEY) || {}; }
 async function setPrevMap(context, map) { await context.globalState.update(STATE_KEY, map); }
 function folderKey(folder) { return folder.uri.toString(); }
@@ -60,7 +60,7 @@ const lastToastAt = new Map(); // folderKey -> epoch ms
  * @param {vscode.ExtensionContext} context
  */
 function activate(context) {
-  const cfg = () => workspace.getConfiguration('pylancePerFolderGuard');
+  const cfg = () => workspace.getConfiguration('pylanceWorkspaceFolderScope');
   const isEnabled = () => cfg().get('enable', true);
 
   // UI setup depending on mode
@@ -69,14 +69,14 @@ function activate(context) {
     if (mode === 'statusbar') {
       if (!statusItem) {
         statusItem = window.createStatusBarItem(StatusBarAlignment.Left, 10);
-        statusItem.command = 'workbench.action.openSettings?%22pylancePerFolderGuard%22';
+        statusItem.command = 'workbench.action.openSettings?%22pylanceWorkspaceFolderScope%22';
         context.subscriptions.push(statusItem);
       }
       statusItem.show();
       if (diag) diag.clear();
     } else if (mode === 'problems') {
       if (!diag) {
-        diag = languages.createDiagnosticCollection('pylance-folder-guard');
+        diag = languages.createDiagnosticCollection('pylance-workspace-folder-scope');
         context.subscriptions.push(diag);
       }
       if (statusItem) statusItem.hide();
@@ -91,7 +91,7 @@ function activate(context) {
   // Recreate UI when settings change
   context.subscriptions.push(
     workspace.onDidChangeConfiguration(e => {
-      if (e.affectsConfiguration('pylancePerFolderGuard')) ensureUiForMode();
+      if (e.affectsConfiguration('pylanceWorkspaceFolderScope')) ensureUiForMode();
     })
   );
 
@@ -123,7 +123,7 @@ function activate(context) {
       const limit = settings.get('maxFiles', 200);
       const includePatterns = settings.get('includePatterns', ['!**/*.py']);
       const skipDirs = new Set(settings.get('excludeDirs', [
-        '.venv','venv','__pycache__','.git','.tox','.mypy_cache','.pytest_cache','site-packages'
+        '.venv', 'venv', '__pycache__', '.git', '.tox', '.mypy_cache', '.pytest_cache', 'site-packages'
       ]));
       const keepStrict = settings.get('keepStrict', true);
       const mode = settings.get('notificationMode', 'toast');
@@ -167,7 +167,7 @@ function activate(context) {
       // Notify based on mode
       notify(folder, action, count, limit, mode, { showEnableToast, showDisableToast, suppressMins });
     } catch (err) {
-      console.error('pylance-folder-guard error:', err);
+      console.error('pylance-workspace-folder-scope error:', err);
     }
   }
 
@@ -196,7 +196,7 @@ function activate(context) {
       const message = action === 'disable' ? textDisable : textEnable;
       const severity = action === 'disable' ? DiagnosticSeverity.Warning : DiagnosticSeverity.Information;
       const d = new Diagnostic(new Range(0, 0, 0, 1), message, severity);
-      d.source = 'Pylance Folder Guard';
+      d.source = 'Pylance Workspace Folder Scope';
       diag.set(settingsUri, [d]);
       return;
     }
@@ -246,7 +246,7 @@ async function deactivate() {
     }
     await setPrevMap(context, prevMap);
   } catch (err) {
-    console.error('pylance-folder-guard deactivate error:', err);
+    console.error('pylance-workspace-folder-scope deactivate error:', err);
   } finally {
     if (diag) diag.clear();
     if (statusItem) statusItem.text = '';
