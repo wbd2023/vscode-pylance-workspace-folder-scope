@@ -1,26 +1,67 @@
 name: Build and publish VS Code extension
+
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to Marketplace"
+        required: true
+        default: "false"
+      version:
+        description: "Version to set on manual runs (eg 0.1.2)"
+        required: false
 
 jobs:
   build-publish:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: '20' }
+        with:
+          node-version: '20'
       - run: npm i -g @vscode/vsce
+
+      # Set version from tag on release events
       - name: Set version from tag
-        if: startsWith(github.ref_name, 'v')
+        if: ${{ github.event_name == 'release' && startsWith(github.ref_name, 'v') }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           node -e "let f=require('./package.json'); f.version='${VERSION}'; require('fs').writeFileSync('package.json', JSON.stringify(f, null, 2));"
-      - run: vsce package
-      - uses: softprops/action-gh-release@v2
-        with: { files: "*.vsix" }
+
+      # Set version from input on manual runs (optional)
+      - name: Set version from input
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.version != '' }}
+        run: |
+          VERSION="${{ inputs.version }}"
+          node -e "let f=require('./package.json'); f.version='${VERSION}'; require('fs').writeFileSync('package.json', JSON.stringify(f, null, 2));"
+
+      # Keep repo in sync when we changed version
+      - name: Commit version bump
+        if: ${{ (github.event_name == 'release' && startsWith(github.ref_name, 'v')) || (github.event_name == 'workflow_dispatch' && inputs.version != '') }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git commit -m "chore(release): v$(node -p "require('./package.json').version")" || echo "No changes"
+          git push origin HEAD:main
+
+      - name: Package
+        run: vsce package
+
+      - name: Upload VSIX to GitHub Release
+        if: ${{ github.event_name == 'release' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "*.vsix"
+
       - name: Publish to Marketplace
-        env: { VSCE_PAT: ${{ secrets.VSCE_TOKEN }} }
+        if: ${{ github.event_name == 'release' || inputs.publish == 'true' }}
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_TOKEN }}
         run: vsce publish --pat "$VSCE_PAT"
+        # For a dry run while testing, append:  --dry-run
