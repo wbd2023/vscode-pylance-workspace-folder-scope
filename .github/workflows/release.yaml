@@ -1,0 +1,26 @@
+name: Build and publish VS Code extension
+on:
+  release:
+    types: [published]
+
+jobs:
+  build-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm i -g @vscode/vsce
+      - name: Set version from tag
+        if: startsWith(github.ref_name, 'v')
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          node -e "let f=require('./package.json'); f.version='${VERSION}'; require('fs').writeFileSync('package.json', JSON.stringify(f, null, 2));"
+      - run: vsce package
+      - uses: softprops/action-gh-release@v2
+        with: { files: "*.vsix" }
+      - name: Publish to Marketplace
+        env: { VSCE_PAT: ${{ secrets.VSCE_TOKEN }} }
+        run: vsce publish --pat "$VSCE_PAT"
