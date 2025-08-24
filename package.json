@@ -1,8 +1,8 @@
 {
   "name": "vscode-pylance-workspace-folder-scope",
   "displayName": "Pylance Workspace Folder Scope",
-  "description": "Scopes Pylance analysis to each workspace folder and disables it if the folder exceeds a file count threshold.",
-  "version": "0.1.0",
+  "description": "Scopes Pylance analysis to each workspace folder and auto-disables it if a folder exceeds a file-count threshold.",
+  "version": "0.2.0",
   "publisher": "wbd2023",
   "engines": {
     "vscode": "^1.85.0"
@@ -27,15 +27,15 @@
           "minimum": 1,
           "description": "If a workspace folder contains more than this many .py files, Pylance analysis will be disabled for that folder."
         },
-        "pylanceWorkspaceFolderScope.includePatterns": {
+        "pylanceWorkspaceFolderScope.includeDirs": {
           "type": "array",
           "items": {
             "type": "string"
           },
           "default": [
-            "!**/*.py"
+            "./"
           ],
-          "description": "Negated glob patterns to include when analysis is enabled. Add entries like !**/*.pyi or !**/*.ipynb."
+          "description": "Directories or glob-like entries to include when analysis is enabled. Each entry will be treated as a root and expanded to Python files. Examples: \"./\", \"src\", \"packages/*\"."
         },
         "pylanceWorkspaceFolderScope.excludeDirs": {
           "type": "array",
@@ -52,12 +52,7 @@
             ".pytest_cache",
             "site-packages"
           ],
-          "description": "Directory names to skip when counting Python files."
-        },
-        "pylanceWorkspaceFolderScope.keepStrict": {
-          "type": "boolean",
-          "default": true,
-          "description": "If true, set python.analysis.typeCheckingMode to 'strict' for each folder."
+          "description": "Directory names to skip when counting Python files and to exclude when analysis is enabled."
         },
         "pylanceWorkspaceFolderScope.notificationMode": {
           "type": "string",

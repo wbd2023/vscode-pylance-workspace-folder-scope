@@ -1,6 +1,16 @@
 'use strict';
 
-import { workspace, window, StatusBarAlignment, languages, ConfigurationTarget, Uri, DiagnosticSeverity, Diagnostic, Range } from 'vscode';
+import {
+  workspace,
+  window,
+  StatusBarAlignment,
+  languages,
+  ConfigurationTarget,
+  Uri,
+  DiagnosticSeverity,
+  Diagnostic,
+  Range
+} from 'vscode';
 import { readdirSync } from 'fs';
 import { join } from 'path';
 
@@ -15,6 +25,7 @@ function debounce(fn, wait) {
 }
 
 function arrayShallowEqual(a, b) {
+  if (a === undefined && b === undefined) return true;
   if (!Array.isArray(a) || !Array.isArray(b)) return false;
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
@@ -45,25 +56,74 @@ function countPyFiles(root, skipDirs) {
   return total;
 }
 
+function toIncludeGlobs(folderRelEntries) {
+  // Turn includeDirs entries into globs of Python files.
+  // If an entry already looks like a glob containing '*' or ends with '.py',
+  // use it as-is. Otherwise, treat it as a directory and append '/**/*.py'.
+  const out = [];
+  for (const raw of folderRelEntries || []) {
+    if (typeof raw !== 'string' || !raw.trim()) continue;
+    let s = raw.trim();
+
+    // Normalise leading './' for workspace-relative globs
+    if (!s.startsWith('./') && !s.startsWith('/')) {
+      s = './' + s;
+    }
+
+    const hasWildcard = /[*?\[]/.test(s);
+    const looksLikeFileGlob = /\.py(i|d)?$/.test(s) || /\/\*\*\/\*\.py(i|d)?$/.test(s);
+
+    if (hasWildcard || looksLikeFileGlob) {
+      out.push(s);
+    } else {
+      // treat as directory root
+      if (s.endsWith('/')) s = s.slice(0, -1);
+      out.push(`${s}/**/*.py`);
+    }
+  }
+  // Fallback to all Python files if nothing valid supplied
+  return out.length ? out : ['./**/*.py'];
+}
+
+function toExcludeGlobs(dirNames) {
+  // Build "**/<name>/**" patterns for each directory name
+  const out = [];
+  for (const raw of dirNames || []) {
+    if (typeof raw !== 'string' || !raw.trim()) continue;
+    const name = raw.trim();
+    out.push(`**/${name}/**`);
+  }
+  return out;
+}
+
 const STATE_KEY = 'pylance-workspace-folder-scope.prevSettings';
-function getPrevMap(context) { return context.globalState.get(STATE_KEY) || {}; }
-async function setPrevMap(context, map) { await context.globalState.update(STATE_KEY, map); }
+function getPrevMap(context) {
+  const v = context.globalState.get(STATE_KEY);
+  return v && typeof v === 'object' ? v : {};
+}
+async function setPrevMap(context, map) {
+  await context.globalState.update(STATE_KEY, map);
+}
 function folderKey(folder) { return folder.uri.toString(); }
 
 // ---------- globals for UI ----------
 
 let statusItem; // status bar item
 let diag;       // DiagnosticCollection
+let _context;   // saved for deactivate
 const lastToastAt = new Map(); // folderKey -> epoch ms
 
+// ---------- extension entry points ----------
+
 /**
- * @param {vscode.ExtensionContext} context
+ * @param {import('vscode').ExtensionContext} context
  */
 function activate(context) {
+  _context = context;
+
   const cfg = () => workspace.getConfiguration('pylanceWorkspaceFolderScope');
   const isEnabled = () => cfg().get('enable', true);
 
-  // UI setup depending on mode
   function ensureUiForMode() {
     const mode = cfg().get('notificationMode', 'toast');
     if (mode === 'statusbar') {
@@ -81,17 +141,20 @@ function activate(context) {
       }
       if (statusItem) statusItem.hide();
     } else {
-      // toast or none
       if (statusItem) statusItem.hide();
       if (diag) diag.clear();
     }
   }
   ensureUiForMode();
 
-  // Recreate UI when settings change
+  // Recreate UI and re-apply when settings change
   context.subscriptions.push(
     workspace.onDidChangeConfiguration(e => {
-      if (e.affectsConfiguration('pylanceWorkspaceFolderScope')) ensureUiForMode();
+      if (e.affectsConfiguration('pylanceWorkspaceFolderScope')) {
+        ensureUiForMode();
+        const folders = workspace.workspaceFolders || [];
+        folders.forEach(f => applyForFolderDebounced(f));
+      }
     })
   );
 
@@ -121,11 +184,11 @@ function activate(context) {
 
       const settings = cfg();
       const limit = settings.get('maxFiles', 200);
-      const includePatterns = settings.get('includePatterns', ['!**/*.py']);
-      const skipDirs = new Set(settings.get('excludeDirs', [
+      const includeDirs = settings.get('includeDirs', ['./']);
+      const excludeDirs = settings.get('excludeDirs', [
         '.venv', 'venv', '__pycache__', '.git', '.tox', '.mypy_cache', '.pytest_cache', 'site-packages'
-      ]));
-      const keepStrict = settings.get('keepStrict', true);
+      ]);
+
       const mode = settings.get('notificationMode', 'toast');
       const showEnableToast = settings.get('showEnableToast', true);
       const showDisableToast = settings.get('showDisableToast', true);
@@ -133,38 +196,58 @@ function activate(context) {
 
       const pythonCfg = workspace.getConfiguration('python', folder.uri);
 
-      // count files
-      const count = countPyFiles(folder.uri.fsPath, skipDirs);
+      // Count files, skipping configured dirs
+      const count = countPyFiles(folder.uri.fsPath, new Set(excludeDirs));
 
-      let desiredExclude, action; // 'disable' | 'enable'
-      if (count > limit) { desiredExclude = ['**']; action = 'disable'; }
-      else { desiredExclude = ['**', ...includePatterns]; action = 'enable'; }
+      // Default: exclude everything
+      // Override when under threshold: include user-selected dirs (as Python globs)
+      // and exclude the configured excludeDirs inside that enabled scope.
+      let desiredInclude, desiredExclude, action;
 
+      if (count > limit) {
+        desiredInclude = undefined;     // remove include so we do not fight user's prior value
+        desiredExclude = ['**'];        // exclude everything by default
+        action = 'disable';
+      } else {
+        desiredInclude = toIncludeGlobs(includeDirs);
+        desiredExclude = toExcludeGlobs(excludeDirs); // e.g. **/.venv/**, **/__pycache__/**
+        action = 'enable';
+      }
+
+      const currentInclude = pythonCfg.get('analysis.include');
       const currentExclude = pythonCfg.get('analysis.exclude');
-      const currentMode = pythonCfg.get('analysis.typeCheckingMode');
-      const needUpdate = !arrayShallowEqual(currentExclude, desiredExclude);
 
-      // Remember previous before we change it
+      const includeChanged =
+        (desiredInclude === undefined && currentInclude !== undefined) ||
+        (desiredInclude !== undefined && !arrayShallowEqual(currentInclude, desiredInclude));
+
+      const excludeChanged =
+        (Array.isArray(desiredExclude) && !arrayShallowEqual(currentExclude, desiredExclude)) ||
+        (!Array.isArray(desiredExclude) && currentExclude !== undefined);
+
+      // Save previous per folder before changing
       let prevMap = getPrevMap(context);
       const key = folderKey(folder);
-      if (needUpdate || (keepStrict && currentMode !== 'strict')) {
-        if (!prevMap[key]) {
-          prevMap[key] = {
-            exclude: currentExclude,
-            typeCheckingMode: currentMode
-          };
-          await setPrevMap(context, prevMap);
-        }
+      if ((includeChanged || excludeChanged) && !prevMap[key]) {
+        prevMap[key] = {
+          include: currentInclude,
+          exclude: currentExclude
+        };
+        await setPrevMap(context, prevMap);
       }
 
-      if (needUpdate) {
-        await pythonCfg.update('analysis.exclude', desiredExclude, ConfigurationTarget.WorkspaceFolder);
+      // Apply updates
+      if (includeChanged) {
+        await pythonCfg.update('analysis.include', desiredInclude, ConfigurationTarget.WorkspaceFolder);
       }
-      if (keepStrict && currentMode !== 'strict') {
-        await pythonCfg.update('analysis.typeCheckingMode', 'strict', ConfigurationTarget.WorkspaceFolder);
+      if (excludeChanged) {
+        await pythonCfg.update(
+          'analysis.exclude',
+          Array.isArray(desiredExclude) ? desiredExclude : undefined,
+          ConfigurationTarget.WorkspaceFolder
+        );
       }
 
-      // Notify based on mode
       notify(folder, action, count, limit, mode, { showEnableToast, showDisableToast, suppressMins });
     } catch (err) {
       console.error('pylance-workspace-folder-scope error:', err);
@@ -172,8 +255,8 @@ function activate(context) {
   }
 
   function notify(folder, action, count, limit, mode, opts) {
-    const textEnable = `Pylance enabled for '${folder.name}'. Analysing ${count} Python files (limit ${limit}).`;
-    const textDisable = `Pylance disabled for '${folder.name}' because it has ${count} Python files which exceeds the ${limit} limit.`;
+    const textEnable = `Pylance enabled for '${folder.name}'. Scope: include Python in configured directories. Analysing ${count} files (limit ${limit}).`;
+    const textDisable = `Pylance disabled for '${folder.name}'. ${count} Python files exceed the ${limit} limit.`;
 
     if (mode === 'none') return;
 
@@ -191,7 +274,6 @@ function activate(context) {
 
     if (mode === 'problems') {
       if (!diag) return;
-      // Attach a diagnostic to .vscode/settings.json inside the folder
       const settingsUri = Uri.joinPath(folder.uri, '.vscode', 'settings.json');
       const message = action === 'disable' ? textDisable : textEnable;
       const severity = action === 'disable' ? DiagnosticSeverity.Warning : DiagnosticSeverity.Information;
@@ -222,7 +304,7 @@ function activate(context) {
 
 async function deactivate() {
   try {
-    const context = _context;
+    const context = _context || module.exports._context;
     if (!context) return;
 
     const prevMap = getPrevMap(context);
@@ -236,11 +318,11 @@ async function deactivate() {
 
       const pythonCfg = workspace.getConfiguration('python', folder.uri);
 
+      if (Object.prototype.hasOwnProperty.call(prev, 'include')) {
+        await pythonCfg.update('analysis.include', prev.include, ConfigurationTarget.WorkspaceFolder);
+      }
       if (Object.prototype.hasOwnProperty.call(prev, 'exclude')) {
         await pythonCfg.update('analysis.exclude', prev.exclude, ConfigurationTarget.WorkspaceFolder);
-      }
-      if (Object.prototype.hasOwnProperty.call(prev, 'typeCheckingMode')) {
-        await pythonCfg.update('analysis.typeCheckingMode', prev.typeCheckingMode, ConfigurationTarget.WorkspaceFolder);
       }
       delete prevMap[key];
     }
@@ -253,4 +335,6 @@ async function deactivate() {
   }
 }
 
+// Support both import and CommonJS styles
 export default { activate, deactivate };
+module.exports = { activate, deactivate };
