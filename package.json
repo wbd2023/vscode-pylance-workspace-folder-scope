@@ -2,7 +2,7 @@
   "name": "vscode-pylance-workspace-folder-scope",
   "displayName": "Pylance Workspace Folder Scope",
   "description": "Scopes Pylance analysis to each workspace folder and auto-disables it if a folder exceeds a file-count threshold.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "wbd2023",
   "engines": {
     "vscode": "^1.85.0"
