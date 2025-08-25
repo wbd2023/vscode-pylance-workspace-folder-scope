@@ -19,7 +19,6 @@ Scopes Pylance analysis to each workspace folder and **disables** it when a fold
       * `[".venv", "__pycache__"]` → `["**/.venv/**", "**/__pycache__/**"]`
     * Effect: analysis is scoped to Python files in your chosen areas while ignoring common noise.
 * Remembers the previous `python.analysis.include` and `python.analysis.exclude` per folder and **restores them on deactivate**.
-* No changes are made to `python.analysis.typeCheckingMode`.
 
 > Note: In Pyright/Pylance, **`exclude` takes precedence** over `include`. This extension avoids negated patterns and uses explicit include and exclude lists accordingly.
 
